@@ -1,0 +1,2 @@
+option('LLVM_PREFIX', type: 'string')
+option('THREADS', type: 'feature', value: 'auto')
