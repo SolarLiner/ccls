@@ -1,36 +1,62 @@
-project('ccls', 'cpp', version: '0.20')
+project('ccls', 'cpp',
+	version: '0.20',
+	license: 'apache',
+	meson_version: '>= 0.51',
+	default_options: ['buildtype=debugoptimized', 'cpp_std=c++17']
+)
 
-add_project_arguments('-DCCLS_VERSION=@0@'.format(meson.project_version()), language: 'cpp')
+llvm_prefix = get_option('LLVM_PREFIX')
 
-clang_exe = find_program('clang', get_option('LLVM_PREFIX') / 'bin' / 'clang')
-llvm_inc = include_directories(get_option('LLVM_PREFIX') / 'include')
+if llvm_prefix == ''
+	clang_exe = find_program('clang')
+	llvm_prefix = run_command(clang_exe, '-print-resource-dir').stdout().strip()
+else
+	clang_exe = find_program(llvm_prefix / 'bin' / 'clang')
+endif
+message('Using Clang resources directory "@0@"'.format(llvm_prefix))
+llvm_inc = llvm_prefix / 'include'
+
+add_project_arguments(
+	'-DCCLS_VERSION="@0@"'.format(meson.project_version()),
+	'-DCLANG_RESOURCE_DIRECTORY="@0@"'.format(llvm_prefix),
+	language: 'cpp'
+)
 
 rapidjson_dep = subproject('rapidjson').get_variable('rapidjson_dep')
-thread_dep = dependency('thread', required: get_option('THREADS'))
+threads_dep = dependency('threads', required: get_option('THREADS'))
 
 deps = [rapidjson_dep]
-if thread_dep.found()
-	deps += [thread_dep]
+if threads_dep.found()
+	deps += [threads_dep]
 endif
 
+cp_exe = find_program('cp')
+libgen = generator(cp_exe,
+	arguments: ['@INPUT@', '@OUTPUT@'],
+	output: '@PLAINNAME@'
+)
 if target_machine.system() == 'darwin'
-	libclang_tgt = configure_file(
-		input: get_option('LLVM_PREFIX') / 'lib' / 'libclang-cpp',
-		output: 'libclang-cpp',
-		copy: true
+	name = 'libclang-cpp.a'
+	path = llvm_prefix / 'lib' / name
+	tgt = custom_target(name,
+		input: path,
+		output: 'libclang-cpp.a',
+		command: [cp_exe, '@INPUT@', '@OUTPUT@']
 	)
 	deps += [
 		declare_dependency(
-			link_with: libclang_tgt,
+			link_with: tgt,
 			include_directories: llvm_inc
 		)
 	]
 else
 	foreach lib : ['Index', 'Format', 'Tooling', 'ToolingInclusions', 'ToolingCore', 'Frontend', 'Parse', 'Serialization', 'Sema', 'AST', 'Lex', 'Driver', 'Basic']
-	tgt = configure_file(
-		input: get_option('LLVM_PREFIX') / 'lib' / 'libclang'+lib+'.a',
-		output: lib,
-		copy: true
+	name = 'libclang'+lib+'.a'
+	path = llvm_prefix / 'lib' / name
+	tgt = custom_target(name,
+		input: path,
+		output: name,
+		command: [cp_exe, '@INPUT@', '@OUTPUT@']
 	)
 	deps += declare_dependency(
 		link_with: tgt,
