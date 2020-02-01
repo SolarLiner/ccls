@@ -226,7 +226,7 @@ readCompilerArgumentsFromFile(const std::string &path) {
     return {};
   std::vector<const char *> args;
   for (line_iterator i(*mbOrErr.get(), true, '#'), e; i != e; ++i) {
-    std::string line = *i;
+    std::string line(*i);
     doPathMapping(line);
     args.push_back(intern(line));
   }
@@ -551,11 +551,16 @@ Project::Entry Project::findEntry(const std::string &path, bool can_redirect,
     if (!best) {
       // Infer args from a similar path.
       int best_score = INT_MIN;
+      auto [lang, header] = lookupExtension(path);
       for (auto &[root, folder] : root2folder)
         if (StringRef(path).startswith(root))
           for (const Entry &e : folder.entries)
             if (e.compdb_size) {
               int score = computeGuessScore(path, e.filename);
+              // Decrease score if .c is matched against .hh
+              auto [lang1, header1] = lookupExtension(e.filename);
+              if (lang != lang1 && !(lang == LanguageId::C && header))
+                score -= 30;
               if (score > best_score) {
                 best_score = score;
                 best_compdb_folder = &folder;
@@ -636,7 +641,7 @@ void Project::index(WorkingFiles *wfiles, const RequestId &id) {
 void Project::indexRelated(const std::string &path) {
   auto &gi = g_config->index;
   GroupMatch match(gi.whitelist, gi.blacklist);
-  std::string stem = sys::path::stem(path);
+  StringRef stem = sys::path::stem(path);
   std::vector<const char *> args, extra_args;
   for (const std::string &arg : g_config->clang.extraArgs)
     extra_args.push_back(intern(arg));
